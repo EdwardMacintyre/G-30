@@ -11,3 +11,6 @@ dat <- as.tibble(dat)
 
 cvars <- c("SEQN","RIDAGEYR","")
 ```
+```{r}
+summary(dat)
+```
