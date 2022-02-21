@@ -4,5 +4,10 @@ output: html_notebook
 ---
 
 ```{r, echo=FALSE}
+# Load packages and import data
+library(tidyverse)
 load(file="NHANES0506.rda")
+dat <- as.tibble(dat)
+
+cvars <- c("SEQN","RIDAGEYR","")
 ```
