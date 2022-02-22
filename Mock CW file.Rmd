@@ -8,6 +8,55 @@ output: html_notebook
 library(tidyverse)
 load(file="NHANES0506.rda")
 dat <- as.tibble(dat)
+# Take note of factor variables and continuous variables
+fvars <- c("RIAGENDR","RIDRETH1","DMDEDUC2","DMDMARTL","INDFMINC")
+cvars <- colnames(dat[which(!(colnames(dat) %in% fvars))])
 
-cvars <- c("SEQN","RIDAGEYR","")
+# Convert categorical columns to factors
+dat <- dat %>% mutate_at(fvars, .funs = factor, ordered = TRUE)
+# Initialize matching tables
+fvars_new_names <- c("GENDER","ETHNICITY","EDUCATION","MARITAL","INCOME")
+
+for (i in 1:length(fvars)){
+  column_names <- c(fvars[i], fvars_new_names[i])
+  col_1 <- dat %>% select(fvars[i]) %>% pull() %>% unique() %>% sort()
+  col_2 <- rep(NA, length(col_1))
+  temp_table <- bind_rows(col_1 = col_1, col_2 = col_2)
+  colnames(temp_table) <- column_names
+  assign(paste(fvars_new_names[i],"_match",sep=""), temp_table)
+}
+
+# Assign the corresponding names to the codes for each factor. These tables can be used to match factor codes to their value descriptions, when needed.
+GENDER_match[, 2] <- c("Male", "Female")
+ETHNICITY_match[, 2] <- c("Mexican American", "Other Hispanic", "White", "Black", "Other")
+EDUCATION_match[, 2] <- c("Less than 9th Grade", "9-11th Grade (Includes 12th grade with no diploma)", "High School Grad/GED or Equivalent", "Some College or AA degree", "College Graduate or above")
+MARITAL_match[, 2] <- c("Married", "Widowed", "Divorced", "Separated", "Never married", "Living with partner")
+INCOME_match[, 2] <- c("$ 0 to $ 4,999", "$ 5,000 to $ 9,999", "$10,000 to $14,999", "$15,000 to $19,999", "$20,000 to $24,999", "$25,000 to $34,999", "$35,000 to $44,999", "$45,000 to $54,999", "$55,000 to $64,999", "$65,000 to $74,999", "$75,000 and Over", "Over $20,000", "Under $20,000", "Refused", "Don't know")
+
+# Produce quick summary
+summary(dat)
+
 ```
+Initial findings from summary: 
+46% male and 54% female
+
+Some missing values for Income (INDFMINC), Glycho (LBXGH), Height (BMXHT), BMI (BMXBMI), Waist circumference (MBXWAIST), Trig (LBXTR), Cholesterol (LBDLDL), and Apolipo (LBXAPB)
+
+```{r}
+sum(rowSums(dat[,cvars[21:25]]))
+sum(rowSums(dat[,cvars[c(21,28)]]))
+sum(rowSums(dat[,cvars[22:23]]) - dat[,cvars[26]])
+sum(rowSums(dat[,cvars[24:25]]) - dat[,cvars[27]])
+sum(dat$mvpa_bouted + dat$vig_bouted - dat$guideline_min)
+```
+
+sed_percent to vig_percent are simply the ratios of sed_min to vig_min and hence sum to 1
+sed_percent and active_percent also sum to 1
+light_min(/percent) and life_min(/percent) sum to lightlife_min(/percent)
+Similarly for mod and vig summing to mvpa
+guideline_min = mvpa_bouted + vig_bouted
+
+Also, num_mvpa(/vig)_bouts * valid_days = "Total number of moderate-vigorous(/vigorous) bouts" 
+
+
+
