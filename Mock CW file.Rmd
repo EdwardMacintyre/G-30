@@ -14,3 +14,10 @@ cvars <- c("SEQN","RIDAGEYR","")
 ```{r}
 summary(dat)
 ```
+
+```{r}
+# TEST
+x=seq(-5,5,0.5)
+y=x^2
+plot(x,y)
+```
