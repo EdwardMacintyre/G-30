@@ -6,6 +6,8 @@ output: html_notebook
 ```{r, echo=FALSE}
 # Load packages and import data
 library(tidyverse)
+library(ggpubr)
+library(GGally)
 load(file="NHANES0506.rda")
 dat <- as.tibble(dat)
 # Take note of factor variables and continuous variables
@@ -37,7 +39,7 @@ INCOME_match[, 2] <- c("$ 0 to $ 4,999", "$ 5,000 to $ 9,999", "$10,000 to $14,9
 summary(dat)
 
 ```
-<<<<<<< HEAD
+
 Initial findings from summary: 
 46% male and 54% female
 
@@ -60,16 +62,34 @@ guideline_min = mvpa_bouted + vig_bouted
 Also, num_mvpa(/vig)_bouts * valid_days = "Total number of moderate-vigorous(/vigorous) bouts" 
 
 
-
-=======
 ```{r}
-summary(dat)
+dat_nice <- dat %>% left_join(GENDER_match, by = "RIAGENDR") %>% left_join(ETHNICITY_match, by = "RIDRETH1") %>% left_join(EDUCATION_match, by = "DMDEDUC2") %>% left_join(MARITAL_match, by = "DMDMARTL") %>% left_join(INCOME_match, by = "INDFMINC") %>% rename(`Glycohemoglobin (%)` = LBXGH)
 ```
 
 ```{r}
-# TEST
-x=seq(-5,5,0.5)
-y=x^2
-plot(x,y)
+plot_1 <- ggplot(dat_nice, aes(`Glycohemoglobin (%)`))
+plot_1 + geom_histogram(fill = "steel blue", bins = 50) + facet_wrap(~GENDER) + theme_classic()
 ```
->>>>>>> f3c7e668bc698f764b88a50ac5b5f963bf837b44
+
+```{r}
+plot_2 <- ggplot(dat_nice, aes(active_percent, `Glycohemoglobin (%)`))
+plot_2 + geom_point(aes(color = ETHNICITY)) + stat_cor() + theme_classic()
+```
+
+```{r}
+plot_3 <- ggplot(dat_nice, aes(cpm, `Glycohemoglobin (%)`))
+plot_3 + geom_point(aes(color = ETHNICITY)) + stat_cor() + theme_classic()
+```
+```{r}
+bar_plot_cat <- function(data, variable) {
+  ggplot(data, aes(variable)) + geom_col() + theme_classic()
+}
+```
+
+```{r}
+ggpairs(data = dat[, cvars[3:6]])
+```
+```{r}
+# Data filtered below Glyco cutoff
+dat_below_cutoff <- dat %>% filter(LBXGH <= 5.7)
+```
