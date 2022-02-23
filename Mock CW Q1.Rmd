@@ -1,0 +1,248 @@
+---
+title: "Mock CW Q1"
+output: html_document
+---
+
+Initial data frame setup:
+
+```{r, echo=FALSE}
+# Load packages and import data
+library(tidyverse)
+library(ggpubr)
+library(GGally)
+load(file="NHANES0506.rda")
+dat <- as.tibble(dat)
+# Take note of factor variables and continuous variables
+fvars <- c("RIAGENDR","RIDRETH1","DMDEDUC2","DMDMARTL","INDFMINC")
+cvars <- colnames(dat[which(!(colnames(dat) %in% fvars))])
+
+# Convert categorical columns to factors
+dat <- dat %>% mutate_at(fvars, .funs = factor, ordered = TRUE)
+# Initialize matching tables
+fvars_new_names <- c("GENDER","ETHNICITY","EDUCATION","MARITAL","INCOME")
+
+for (i in 1:length(fvars)){
+  column_names <- c(fvars[i], fvars_new_names[i])
+  col_1 <- dat %>% select(fvars[i]) %>% pull() %>% unique() %>% sort()
+  col_2 <- rep(NA, length(col_1))
+  temp_table <- bind_rows(col_1 = col_1, col_2 = col_2)
+  colnames(temp_table) <- column_names
+  assign(paste(fvars_new_names[i],"_match",sep=""), temp_table)
+}
+
+# Assign the corresponding names to the codes for each factor. These tables can be used to match factor codes to their value descriptions, when needed.
+GENDER_match[, 2] <- c("Male", "Female")
+ETHNICITY_match[, 2] <- c("Mexican American", "Other Hispanic", "White", "Black", "Other")
+EDUCATION_match[, 2] <- c("Less than 9th Grade", "9-11th Grade (Includes 12th grade with no diploma)", "High School Grad/GED or Equivalent", "Some College or AA degree", "College Graduate or above")
+MARITAL_match[, 2] <- c("Married", "Widowed", "Divorced", "Separated", "Never married", "Living with partner")
+INCOME_match[, 2] <- c("$ 0 to $ 4,999", "$ 5,000 to $ 9,999", "$10,000 to $14,999", "$15,000 to $19,999", "$20,000 to $24,999", "$25,000 to $34,999", "$35,000 to $44,999", "$45,000 to $54,999", "$55,000 to $64,999", "$65,000 to $74,999", "$75,000 and Over", "Over $20,000", "Under $20,000", "Refused", "Don't know")
+```
+
+
+Using the initial setup, we create a "nice" version of the data:
+
+```{r}
+dat_nice <- dat %>% left_join(GENDER_match, by = "RIAGENDR") %>% left_join(ETHNICITY_match, by = "RIDRETH1") %>% left_join(EDUCATION_match, by = "DMDEDUC2") %>% left_join(MARITAL_match, by = "DMDMARTL") %>% left_join(INCOME_match, by = "INDFMINC") %>% rename(`Glycohemoglobin (%)` = LBXGH)
+```
+
+```{r}
+dat_nice <- dat_nice %>% rename(`AGE` = RIDAGEYR, `HEIGHT` = BMXHT, `WAIST` = BMXWAIST, `BMI` = BMXBMI, `Triglyceride` = LBXTR, `LDL-cholesterol` = LBDLDL, `Apolipoprotein (B)` = LBXAPB)
+```
+
+
+We want to model "Glycohemoglobin" as the response variable.
+
+```{r}
+hist(dat_nice$`Glycohemoglobin (%)`, breaks = 20)
+```
+
+We are only interested in Glyco levels below the threshold for pre-diabetes (5.7-6.4%) and diabetes (6.5% or higher), so we restrict the data to Glyco levels below 5.7%:
+
+```{r}
+dat_below_cutoff <- dat_nice %>% filter(`Glycohemoglobin (%)` < 5.7)
+```
+
+```{r}
+hist(dat_below_cutoff$`Glycohemoglobin (%)`, breaks = 20)
+```
+
+
+Model without using pedometer data variables:
+
+```{r}
+cvars_xped <- c("Glycohemoglobin (%)", "AGE", "HEIGHT", "BMI", "WAIST", "Triglyceride", "LDL-cholesterol", "Apolipoprotein (B)")
+fvars_xped <- c("GENDER", "ETHNICITY", "EDUCATION", "MARITAL", "INCOME") 
+```
+
+Summary of data variables:
+
+```{r}
+summary(dat_below_cutoff[cvars_xped])
+```
+
+```{r}
+count(dat_below_cutoff)
+```
+
+Small amounts of missing values in the numerical fields, remove these entries:
+
+```{r}
+dat_bc_clean <- dat_below_cutoff %>% filter(!is.na(`HEIGHT`), !is.na(`BMI`), !is.na(`WAIST`), !is.na(`Triglyceride`), !is.na(`LDL-cholesterol`), !is.na(`Apolipoprotein (B)`))
+```
+
+```{r}
+summary(dat_bc_clean[cvars_xped])
+count(dat_bc_clean)
+```
+
+
+Correlations of all numerical variables (rounded):
+
+```{r}
+round(cor(dat_bc_clean[, cvars_xped]), 2)
+```
+
+
+Missing values in factor variables:
+
+```{r}
+summary(dat_bc_clean[fvars])
+```
+
+```{r}
+count(dat_bc_clean, INDFMINC)
+```
+
+Small amounts of missing values, refused, or don't know entries in income field. All other factor variables appear fine. Remove NA's in the income field:
+
+```{r}
+dat_bc_clean <- dat_bc_clean %>% filter(!is.na(INDFMINC))
+```
+
+
+Modelling:
+
+Not count data or proportions so first start with a linear model. Response variable possibly skewed (once cutoff applied) so could possibly use a Gamma GLM.
+
+Start with full model:
+
+```{r}
+full <- lm(`Glycohemoglobin (%)` ~ AGE + HEIGHT + BMI + WAIST + Triglyceride + `LDL-cholesterol` + `Apolipoprotein (B)` + GENDER + ETHNICITY + EDUCATION + MARITAL + INCOME, dat_bc_clean)
+```
+
+```{r}
+summary(full)
+```
+
+Variables of some significance appear to be AGE, LDL-cholesterol, Apolipoprotein (B) and some levels in ETHNICITY
+
+```{r}
+drop1(full)
+```
+
+```{r}
+full_step <- step(full)
+```
+
+```{r}
+summary(full_step)
+```
+
+
+ETHNICITY - Could maybe group into two levels, White and Other
+EDUCATION - Could group into College educated and Non College educated
+
+Model with just the variables which were significant in the previous model:
+
+```{r}
+fit1 <- lm(`Glycohemoglobin (%)` ~ AGE + BMI + `Apolipoprotein (B)` + `LDL-cholesterol` + ETHNICITY + EDUCATION, dat_bc_clean)
+summary(fit1)
+```
+
+```{r}
+AIC(full_step)
+AIC(fit1)
+```
+
+Comparing AIC suggests bigger model (full_step) is better.
+
+
+Diagnostics:
+
+```{r}
+plot(full_step, 1)
+plot(full_step, 2)
+```
+
+```{r}
+plot(density(resid(full_step)))
+```
+
+```{r}
+e = resid(full_step)
+plot(e, dat_bc_clean$AGE)
+plot(e, dat_bc_clean$BMI)
+plot(e, dat_bc_clean$Triglyceride)
+plot(e, dat_bc_clean$`LDL-cholesterol`)
+plot(e, dat_bc_clean$`Apolipoprotein (B)`)
+```
+
+Residual summary suggests possible skewness and some unusual lower values, median around 0 is good though. Looking at the density plot confirms this, residuals appear approximately normal however with a longer left tail.
+
+
+Gamma GLM:
+
+```{r}
+fullGLM <- glm(`Glycohemoglobin (%)` ~ AGE + HEIGHT + BMI + WAIST + Triglyceride + `LDL-cholesterol` + `Apolipoprotein (B)` + GENDER + ETHNICITY + EDUCATION + MARITAL + INCOME, data = dat_bc_clean, family = Gamma(log))
+summary(fullGLM)
+```
+
+```{r}
+fullGLM_step <- step(fullGLM)
+```
+
+```{r}
+summary(fullGLM_step)
+```
+
+Diagnostics:
+
+```{r}
+plot(fullGLM_step, 1)
+plot(fullGLM_step, 2)
+plot(density(resid(fullGLM_step)))
+```
+
+```{r}
+AIC(full_step)
+AIC(fullGLM_step)
+```
+
+Skewness is still apparent in GLM.
+
+
+
+Transformation of response variable:
+
+```{r}
+logfull_step <- lm(log(`Glycohemoglobin (%)`) ~ AGE + BMI + Triglyceride + `LDL-cholesterol` + `Apolipoprotein (B)` + ETHNICITY + GENDER + EDUCATION, dat_bc_clean)
+summary(logfull_step)
+```
+
+```{r}
+plot(logfull_step, 1)
+plot(logfull_step, 2)
+plot(density(resid(logfull_step)))
+```
+
+```{r}
+AIC(full_step)
+AIC(logfull_step)
+# NOT COMPARABLE ???
+```
+
+QQ plot still not perfect.
+
+
+
+
