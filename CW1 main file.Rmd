@@ -1,0 +1,51 @@
+---
+title: "CW1 main file"
+author: "Edward Macintyre"
+date: "27/02/2022"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, echo=FALSE}
+library(tidyverse)
+library(ggpubr)
+library(GGally)
+
+data_raw <- read_csv("CW1_data.csv")
+
+# We can drop the first column since it is identical to the state variable
+data_raw <- data_raw[-1]
+
+# All of the variable names are fairly self-explanatory. 
+# The Gini Index (giniindex) is a measure of income distribution across a population. 0 indicates perfect equality, and 1 indicates perfect inequality. i.e. If each person in a population earned the same income, the Gini Index would be 0, but if 1 person earned all of the income of a population, the Gini Index would be 1. A higher Gini Index indicates higher earners in a population earn a greater proportion of the total income.
+
+# Split data into data to be used in Q1 and Q2 respectively. Some of the socioeconomic variables provided are a mix of 2015/2016 data, however, since they are averages/proportions from a very large sample size, it is safe to assume the values will be approximately equal in both year. i.e. we can use the proportion of the population that is non-white in 2015 as an estimate for that of 2016. Similarly, the proportion of adults 25 and older with a high-school degree in 2009 can be used as an estimate for that of 2010.
+vars_Q1 <- c("state", "householdincome", "unemployed", "metropop", "noncitizen", "whitepoverty", "giniindex", "nonwhite", "trumpvoter", "incidents2016", "pop2016", "hrate2016")
+vars_Q2 <- c("state", "metropop")
+
+# 1. Did the 2016 election campaigns of Donald Trump lead to an increase in hate crimes?
+
+# Initial thoughts
+# To answer this question, I propose constructing a model based off of the 2016 data. We want to relate hate crime incidence to the proportion of population that voted for trump. A good model may be a poisson model with log link and incidence as the explanatory variable. 
+
+# Look at modelling the difference between 2015 and 2016 incidences
+
+# Look at correlations between other explanatory variables
+
+
+
+# 2. Using data of the period 2010 to 2015, investigate whether there are associations between hate crime
+# incident rates and the explanatory variables on socio-economic factors. Describe the strength and the
+# nature of the association.
+```
+
+Caveats (Please add to these as you go along so we can mention them in the report):
+
+1. The hate crime incidence broken down by bias/motivation is not specified in this particular data set
+2. The hate crime incidence is only based off of crimes that are reported, do not mistake this for total number of hate crimes since many may go unreported
+3. The state list contains all of the states of America, except Hawaii. This is because "Hawaii does not participate in the Hate Crime Statistics Program" (FBI)
+4. The state list includes the District of Columbia (Washington D.C.) which isn't technically a state, however it functions as a state for all of the purposes we will be looking in to
+5. The data provided is not super specific to Q1 so make sure to mention this
