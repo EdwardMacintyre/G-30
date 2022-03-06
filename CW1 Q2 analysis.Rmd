@@ -1,0 +1,284 @@
+---
+title: "CW1 Q2 analysis"
+author: "Edward Macintyre"
+date: "01/03/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, echo=FALSE}
+library(tidyverse)
+library(ggpubr)
+library(GGally)
+library(Hmisc)
+library(corrplot)
+library(lmtest)
+library(boot)
+library(DAAG)
+
+data_raw <- read_csv("CW1_data.csv")
+
+# ++++++++++++++++++++++++++++
+# flattenCorrMatrix
+# ++++++++++++++++++++++++++++
+# cormat : matrix of the correlation coefficients
+# pmat : matrix of the correlation p-values
+flattenCorrMatrix <- function(cormat, pmat) {
+  ut <- upper.tri(cormat)
+  data.frame(
+    row = rownames(cormat)[row(cormat)[ut]],
+    column = rownames(cormat)[col(cormat)[ut]],
+    cor  =(cormat)[ut],
+    p = pmat[ut]
+    )
+}
+
+```
+We can drop the first column since it is identical to the state variable
+```{r}
+data_raw <- data_raw[-1]
+```
+Keep only the variables of interest: those being the socioeconomic variables from or close to the 2010-2015 period, and the hate crime incidents, rates and the population covered from the 2010-2015 
+```{r}
+# Select the variables we require
+data201015 <- data_raw %>% select(-c("incidents2016", "pop2016", "hrate2016"))
+summary(data201015)
+```
+We wish to see if there is an association between hate crime incidence rates and these socioeconomic variables. To do this, we will need to fit a GLM.
+
+Since the response of hate crime incidence rate is a positive rate, it is natural to try to fit a Gamma GLM. Also, since the rate is a mean across a 5 year period, due to the central limit theorem, the distribution of the variable would tend towards a normal, hence a standard linear model may also be appropriate. Furthermore, since hate crime incidents is a count variable, it could be feasible to fit a Poisson GLM with log(population/100000) as an offset variable. Let's fit all three models, refine each of them, and compare their performaces.
+
+Notice that "noncitizen" has three missing values. We will need to decide whether to include this variable in our model and exclude these missing rows, or exclude the variable and include the entirety of the remaining data.
+
+Since the incidence rates are directly related to the number of incidents via division by the population and multiplication by 100,000, it would not make sense to include incidence as an explanatory variable. However it could be feasible for population size to affect the overall hate crime rate, therefore it will be included in the initial modelling.
+
+Here are visualisations of the mean hate crime rate from 2010-2015
+```{r}
+ggplot(data201015, aes(x = "", y = hrate201015)) + geom_boxplot() + stat_summary(aes(label = round(stat(y), 2)), geom = "text", fun = function(y) { o <- boxplot.stats(y)$out; if(length(o) == 0) NA else o }, hjust = -1) + theme_minimal() + xlab(NULL)
+ggplot(data201015, aes(x = hrate201015)) + geom_histogram() + theme_minimal()
+```
+We can clearly see that there is a outlier of 10.97, corresponding to the hate crime rate of the District of Columbia. It is likely that this value is extreme due to the fact that the District of Columbia is a much smaller, more densely populated metropolitan area. We will remove this row.
+```{r}
+data201015 <- data201015 %>% filter(state != "District of Columbia")
+```
+Here is a visualisation of the correlations between all of the variables
+```{r}
+corrplot(cor(data201015[-1], use = "complete.obs"), type = "upper", order = "hclust", tl.col = "black", tl.srt = 45)
+```
+Here is a table of the correlations and their p-values
+```{r}
+cor_mat <- rcorr(as.matrix(data201015[-1]))
+cor_mat_flat <- flattenCorrMatrix(cor_mat$r, cor_mat$P) %>% arrange(desc(cor))
+cor_mat_flat
+```
+We will need to be mindful of the variables that are highly correlated. 
+
+Let's begin with a full linear model
+```{r}
+lmod_1 <- glm(hrate201015 ~ householdincome + unemployed + metropop + highschoolpop + noncitizen + whitepoverty + giniindex + nonwhite + trumpvoter + pop201015, data = data201015)
+summary(lmod_1)
+```
+The only significant variable here is noncitizen. Let's attempt to remove some variables from the model using the step function
+```{r}
+step(lmod_1)
+```
+Set a new model equal to the result of the step function
+```{r}
+lmod_2 <- glm(formula = hrate201015 ~ highschoolpop + noncitizen + whitepoverty + giniindex + nonwhite + pop201015, data = data201015)
+summary(lmod_2)
+```
+This new model only has two significant variables: noncitizen and nonwhite.
+Let's perform a log-likelihood ratio test on whether a model only containing noncitizen and nonwhite is as good as the larger model
+```{r}
+lmod_3 <- glm(formula = hrate201015 ~ noncitizen + nonwhite, data = data201015)
+lrtest(lmod_2, lmod_3)
+```
+The p-value of the test is not significant, so we do not reject the null hypothesis that this model is as good a fit as the larger model
+Let's see which variables contribute the most to the model
+```{r}
+drop1(lmod_3)
+```
+Since nonwhite and noncitizen have a strong positive correlation, we could try to remove one of them. nonwhite contributes slightly more than noncitizen, so let's remove noncitizen and perform another log-likelihood ratio test. In order to compare the two models, this new model will need to be constructed on the same data set, so let's remove the rows where noncitizen has empty values.
+```{r}
+data201015_1 <- data201015 %>% filter(!is.na(noncitizen))
+lmod_4 <- glm(formula = hrate201015 ~ nonwhite, data = data201015_1)
+lrtest(lmod_3, lmod_4)
+```
+The p-value of this test is highly significant, so we reject the null hypothesis that the smaller model is as good a fit as the larger model.
+```{r}
+summary(lmod_3)
+```
+Under this model, both explanatory variables are significant
+
+Let's investigate how well the model fits the data and our normality assumptions
+```{r}
+plot(lmod_3,1)
+plot(lmod_3,2)
+```
+The Q-Q plot indicates a fairly good normality assumption. There are some outliers, however, since the data set is already small and the outliers aren't too extreme, they will not be removed. The residual vs fitted plot indicates good centrality about zero, however there appears to be non-constant variance as the fitted value increases, which is undesirable.
+```{r}
+plot(data201015_1$noncitizen, resid(lmod_3))
+lines(lowess(data201015_1$noncitizen,resid(lmod_3)),col="red")
+abline(h=0,col="blue")
+
+plot(data201015_1$nonwhite, resid(lmod_3))
+lines(lowess(data201015_1$nonwhite,resid(lmod_3)),col="red")
+abline(h=0,col="blue")
+```
+The individual residual plots for noncitizen and nonwhite indicate good normality assumptions: no visible patterns and an even distribution about zero
+
+
+
+Now let's try to fit a gamma model.
+```{r}
+gmod_1 <- glm(hrate201015 ~ householdincome + unemployed + metropop + highschoolpop + noncitizen + whitepoverty + giniindex + nonwhite + trumpvoter + pop201015, data = data201015, family = Gamma("log"))
+summary(gmod_1)
+```
+The only significant variables are noncitizen and nonwhite. Let's attempt to remove some variables from the model using the step function
+```{r}
+step(gmod_1)
+```
+Set a new model equal to the result of the step function
+```{r}
+gmod_2 <- glm(formula = hrate201015 ~ noncitizen + nonwhite, family = Gamma("log"), data = data201015)
+summary(gmod_2)
+```
+This new model only contains two variables: noncitizen and nonwhite. Both are significant. However, they have a strong positive corellation, so let's attempt to remove one.
+```{r}
+drop1(gmod_2)
+```
+nonwhite contributes the most to the model, so we remove noncitizen and perform a log-likelihood ratio test.
+```{r}
+gmod_3 <- glm(formula = hrate201015 ~ nonwhite, family = Gamma("log"), data = data201015_1)
+lrtest(gmod_2, gmod_3)
+```
+The p-value of this test is highly significant, so we reject the null hypothesis that the smaller model is as good a fit as the larger model.
+
+Let's investigate how well the model fits the data and our normality assumptions
+```{r}
+plot(gmod_2,1)
+plot(gmod_2,2)
+```
+Both plots are very similar to that of the linear model (lmod_3), and so we draw the same conclusions. 
+
+Lets perform leave-one-out cross validation to compare the predictive power of the linear model vs the gamma model
+```{r}
+set.seed(123)
+cv.glm(data201015_1, lmod_3 , K = nrow(data201015_1))$delta[1]
+
+set.seed(123)
+cv.glm(data201015_1, gmod_2 , K = nrow(data201015_1))$delta[1]
+```
+The gamma glm produces a lower average prediction error, so we choose the gamma model over the linear model.
+
+
+Now let's try to fit a Poisson model.
+```{r}
+pmod_1 <- glm(incidents201015 ~ householdincome + unemployed + metropop + highschoolpop + noncitizen + whitepoverty + giniindex + nonwhite + trumpvoter + offset(log(pop201015/100000)), data = data201015, family = poisson)
+summary(pmod_1)
+```
+Some variables are non-significant, so let's try to remove them using the result of the step function
+```{r}
+step(pmod_1)
+pmod_2 <- glm(formula = incidents201015 ~ householdincome + unemployed + noncitizen + whitepoverty + giniindex + nonwhite + offset(log(pop201015)), family = poisson, data = data201015)
+summary(pmod_2)
+```
+Now all of the variables are significant except giniindex. Let's consider the contribution of the other variables.
+```{r}
+drop1(pmod_2)
+```
+We see that nonwhite and noncitizen contribute the most and second most to the model, respectively. Since they have a strong positive correlation of 0.74, we will remove noncitzen from the model, and perform a log-likelihood ratio test to see if the smaller model fits the data better just as well.
+```{r}
+pmod_3 <- glm(formula = incidents201015 ~ householdincome + unemployed + whitepoverty + giniindex + nonwhite + offset(log(pop201015)), family = poisson, data = filter(data201015, !is.na(noncitizen)))
+lrtest(pmod_2, pmod_3)
+```
+The p-value of this test is highly significant, so we reject the null hypothesis that the smaller model is as good a fit as the larger one.
+
+Since giniindex is not a significant variable, we want to remove it from the model. Although this will increase the AIC, let's perform another log-likelihood ratio test to confirm whether this smaller model is as good a fit.
+```{r}
+pmod_4 <- update(pmod_2, . ~ . -giniindex)
+lrtest(pmod_2, pmod_4)
+```
+The p-value of this test is greater than 0.05, so the test fails to reject the null hypothesis that the smaller model is as good a fit as the larger one.
+```{r}
+summary(pmod_4)
+
+plot(pmod_4,1)
+plot(pmod_4,2)
+
+
+plot(data201015_1$householdincome, resid(pmod_4))
+lines(lowess(data201015_1$householdincome,resid(pmod_4)),col="red")
+abline(h=0,col="blue")
+
+plot(data201015_1$unemployed, resid(pmod_4))
+lines(lowess(data201015_1$unemployed,resid(pmod_4)),col="red")
+abline(h=0,col="blue")
+
+plot(data201015_1$noncitizen, resid(pmod_4))
+lines(lowess(data201015_1$noncitizen,resid(pmod_4)),col="red")
+abline(h=0,col="blue")
+
+plot(data201015_1$whitepoverty, resid(pmod_4))
+lines(lowess(data201015_1$whitepoverty,resid(pmod_4)),col="red")
+abline(h=0,col="blue")
+
+plot(data201015_1$nonwhite, resid(pmod_4))
+lines(lowess(data201015_1$nonwhite,resid(pmod_4)),col="red")
+abline(h=0,col="blue")
+```
+All plots of the residuals vs explanatory variables show no significant patterns and fairly even distributions about 0, so there is no need to make any transformations to the variables. The Q-Q plot indicates a fairly good normality assumption. There are three outliers, however, since the data set is already quite small and the outliers are not too extreme, they will not be removed. However, the spread of the residuals about 0 is very large, perhaps indicating that a Quasipoisson model would be more appropriate. 
+```{r}
+pmod_5 <- glm(formula = formula(pmod_4), data = data201015_1, family = quasipoisson())
+summary(pmod_5)
+```
+Now householdincome and whitepoverty are not statistically significant so we remove them from the model
+```{r}
+pmod_6 <- update(pmod_5, .~.-householdincome - whitepoverty)
+summary(pmod_6)
+```
+Lets attempt to perform cross validation that we can compare with the gamma model
+```{r}
+sum <- 0
+for (i in 1:nrow(data201015_1)) {
+  data_temp <- data201015_1[-i,]
+  mod_temp <- glm(formula(pmod_6), data = data_temp, family = poisson)
+  terms <- data201015_1[i,c("unemployed","noncitizen","nonwhite","pop201015")]
+  predicted <- predict.glm(mod_temp, newdata = terms)
+  actual <- data201015_1[i,c("hrate201015")]
+  square_diff <- (predicted - actual)^2
+  sum <- sum + square_diff
+}
+average_error <- sum/nrow(data201015_1)
+average_error
+```
+The average prediction error for the quasipoisson model is greater than that of the gamma model, hence we choose the gamma model as our final model.
+
+Final model is gmod_2: gamma glm with log(hrate201015) ~ noncitizen + nonwhite
+
+noncitizen: 12.796 (5.548, 20.03) -> for every 1% increase in noncitizen, mean hrate201015 increases by 14% (6%, 22%)
+nonwhite:  -2.824  (-4.287, -1.27) -> for every 1% increase in nonwhite, mean hrate201015 decreases by 2.8% (1.3%, 4.2%)
+
+According to the model, a fully white, US citizen state would have, on average, an average hate crime rate of 2.49 (1.74, 3.63) incidents per 100,000 people over the 2010-2015 period.
+
+```{r}
+plot(predict(gmod_2, type = "response"), data201015_1$hrate201015, xlab = "Predicted", ylab = "Actual", main = "Actual vs Predicted hate crime rates")
+lines(lowess(predict(gmod_2, type = "response"), data201015_1$hrate201015),col="red")
+```
+
+
+
+
+
+Caveats
+
+1. The response is an average across the 2010-2015 period, whereas the explanatory variables are taken from singular years within or close to the 2010-2015 period.
+
+2. The maximum value of noncitizen is 0.130, so attempting to make predictions with non-citizen proportions greater than this value are likely to be inaccurate. Similarly for nonwhite with 0.630
+
+References
+
+1. flattenCorrMatrix function, "Correlation matrix : A quick start guide to analyze, format and visualize a correlation matrix using R software", from "http://www.sthda.com/english/wiki/correlation-matrix-a-quick-start-guide-to-analyze-format-and-visualize-a-correlation-matrix-using-r-software#infos", on 02/03/22 
