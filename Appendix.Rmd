@@ -528,15 +528,37 @@ Now let's fit a negative binomial model.
 ```{r}
 nbmod_1 <- glm.nb(incidents201015 ~ householdincome + unemployed + metropop + highschoolpop + noncitizen + whitepoverty + giniindex + nonwhite + trumpvoter + offset(log(pop201015/100000)), data = data201015)
 summary(nbmod_1)
+```
+Only noncitizen and nonwhite are significant. Let's try to reduce the number of variables in the model using the step function and set a new model equal to the result.
+```{r}
 step(nbmod_1)
 nbmod_2 <- glm.nb(formula = incidents201015 ~ noncitizen + nonwhite + offset(log(pop201015/1e+05)), data = data201015, link = log)
 summary(nbmod_2)
+```
+Again, since noncitizen and nonwhite have a strong positive correlation, let's evaluate their contributions to the likelihood and see if we can remove the one with the least contribution.
+```{r}
 drop1(nbmod_2)
+```
+Remove noncitizen and perform a log-likelihood ratio test to see if the smaller model is as good a fit as the larger model
+```{r}
 nbmod_3 <- glm.nb(formula = incidents201015 ~ nonwhite + offset(log(pop201015/1e+05)), data = filter(data201015, !is.na(noncitizen)), link = log)
 lrtest(nbmod_2,nbmod_3)
+```
+The test is highly statistically significant, as for the linear and gamma models, so we opt to keep noncitizen.
+
+Now let's have a look at the spread of the deviance residuals against the linear predictor.
+```{r}
 nbmod_2_graph_data <- data.frame(Residuals = resid(nbmod_2,type="deviance"), Predicted = predict(nbmod_2,type="link"))
 ggplot(nbmod_2_graph_data, aes(Predicted,Residuals)) + geom_point(size = 2) + geom_abline(intercept = 0, slope = 0) + stat_smooth(se=FALSE,color="red") + labs(title = "Residual plot for Negative Binomial model", x="Linear Predictor",y="Deviance Residual") + theme_wsj() + theme(text = element_text(size = 5), plot.title = element_text(hjust = 0.5), axis.text = element_text(size = 10), axis.title = element_text()) + scale_y_continuous(limits = c(-3,3), n.breaks = 6)
+```
+This plot is very similar to that of the Gamma model.
 
+Now we wish to decide which of the three models are the best. They all only have noncitizen and nonwhite as explanatory variables, and none of their residual plots are particularly good. Whereas normally we would use AIC to compare different models, we cannot use it here to compare the linear, gamma and negative binomial models, since they have different likelihood functions.
+
+Instead, lets perform leave-one-out cross validation to compare their predictive powers.
+
+
+```{r}
 sum <- 0
 for (i in 1:nrow(data201015_1)) {
   data_temp <- data201015_1[-i,]
@@ -575,10 +597,7 @@ for (i in 1:nrow(data201015_1)) {
 average_error_nb <- sum/nrow(data201015_1)
 average_error_nb
 ```
-
-We cannot use AIC to compare the gamma model and the linear model, since they have different likelihood functions.
-
-Instead, lets perform leave-one-out cross validation to compare the predictive power of the linear model vs the gamma model
+The Negative Binomial model produced the lowest prediction error, meaning it is the most versatile and making predictions to new data. For this reason, this is the best chosen model.
 
 
 
@@ -586,16 +605,18 @@ Instead, lets perform leave-one-out cross validation to compare the predictive p
 
 
 ```{r}
-plot(predict(nbmod_2, type = "response")/(data201015_1$pop201015/100000), data201015_1$hrate201015, xlab = "Predicted", ylab = "Actual", main = "Actual vs Predicted hate crime rates")
-lines(lowess(predict(nbmod_2, type = "response")/(data201015_1$pop201015/100000), data201015_1$hrate201015),col="red")
-abline(a=0,b=1)
-
 nbmod_2_graph_data_1 <- data.frame(Actual = data201015_1$hrate201015, Predicted = predict(nbmod_2, type = "response")/(data201015_1$pop201015/100000))
 ggplot(nbmod_2_graph_data_1, aes(Predicted,Actual)) + geom_point(size = 2) + geom_abline(intercept = 0, slope = 1) + stat_smooth(se=FALSE,color="red") + labs(title = "Actual vs Predicted hate crime rates for NB model", x="Predicted",y="Actual") + theme_wsj() + theme(text = element_text(size = 5), plot.title = element_text(hjust = 0.5), axis.text = element_text(size = 10), axis.title = element_text())
 ```
+```{r}
+confint(nbmod_2)
+```
+Parameters:
 
+noncitizen:   13.58 (5.59,21.62) -> For every 1% increase in noncitizen, hate crime rate increases by 1.15 (1.06,1.24)
+nonwhite      -3.10 (-4.84,-1.31) -> For every 1% increase in nonwhite, hate crime rate decreases by 0.0305 (0.0130,0.0473)
 
-
+According to the model, a fully white, fully US citizen state would have a hate crime rate of 2.58 (1.73,3.89)
 
 
 Caveats
@@ -603,6 +624,8 @@ Caveats
 1. The response is an average across the 2010-2015 period, whereas the explanatory variables are taken from singular years within or close to the 2010-2015 period.
 
 2. The maximum value of noncitizen is 0.130, so attempting to make predictions with non-citizen proportions greater than this value are likely to be inaccurate. Similarly for nonwhite with 0.630
+
+3. The data set is relatively small and very noisy. This means it is difficult to create a model that fits the data well.
 
 References
 
