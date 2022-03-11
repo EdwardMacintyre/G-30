@@ -95,6 +95,9 @@ plot(density(dat$hrate201015), ylim=c(0,0.35))
 lines(density(dat$hrate2016), col="red")
 plot(density(dat_xDC$hrate201015), ylim=c(0,0.35))
 lines(density(dat_xDC$hrate2016), col="red")
+density_plot_data <- dat_xDC %>% rename(`2010-2015`=hrate201015,`2016`=hrate2016) %>% gather(key="Year",value="Hate Crime Incidence Rate",`2010-2015`,`2016`)
+
+ggplot(density_plot_data, aes(x = `Hate Crime Incidence Rate`, color = Year)) + geom_density(size = 1) + labs(title = "Density of Hate Crime Incidence Rates", x="Hate Crime Incidence Rate",y="Density") + theme_wsj()+ theme(text = element_text(size = 5), plot.title = element_text(hjust = 0.5), axis.text = element_text(size = 10), legend.text = element_text(size=10),axis.title = element_text(size=10))+ scale_x_continuous(limits = c(-2,7))
 ```
 
 Plots above again don't show any major increases/decreases in the rate of HC in 2016 compared to 2010-15. If anything it shows a slight decrease.
@@ -112,6 +115,7 @@ summary(dat_xDC[c(17,18,19)])
 par(mfrow=c(1,2))
 plot(density(dat_xDC$incidentsDIFF))
 plot(density(dat_xDC$hrateDIFF))
+
 ```
 
 "Differences" appear to be centered around zero possible slight skew to left (decrease) on hrateDIFF.
@@ -315,6 +319,14 @@ IQR(differences)
 
 ```{r}
 boxplot(differences)
+
+diff_boxplot <- ggplot(dat_xDC, aes(x=hrateDIFF)) + geom_boxplot(fill = "grey", outlier.color = "red", outlier.size = 3) + labs(title = "Hate Crime Rate (Paired Difference between 2016 and 2010-2015)", x=NULL,y=NULL) + theme_wsj()+ theme(text = element_text(size = 5), plot.title = element_text(hjust = 0.5), axis.text = element_text(size = 10), axis.text.y = element_blank()) + scale_x_continuous(limits = c(-4,3))
+
+diff_density <- ggplot(dat_xDC, aes(x=hrateDIFF)) + geom_density(size = 1) + labs(x="Hate Crime Incidence Rate Difference") + theme_wsj()+ theme(text = element_text(size = 5), plot.title = element_text(hjust = 0.5), axis.text = element_text(size = 10), legend.text = element_text(size=10),axis.title.x = element_text(size=10))+ scale_x_continuous(limits = c(-4,3))
+
+
+grid.arrange(diff_boxplot,diff_density)
+
 ```
 
 Differences do appear to be symmetrically distributed around the median, assumption holds, do the test.
@@ -357,7 +369,9 @@ Q2
 
 ```{r, echo=FALSE}
 library(MASS)
-library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(readr)
 library(ggpubr)
 library(GGally)
 library(Hmisc)
@@ -427,7 +441,8 @@ Here is a table of the correlations and their p-values
 cor_mat <- rcorr(as.matrix(data201015[-1]))
 cor_mat_flat <- flattenCorrMatrix(cor_mat$r, cor_mat$P) %>% arrange(desc(cor)) %>% rename(`1`=row,`2`=column, Correlation = cor, `P-Value` = p)
 cor_mat_flat
-cor_mat_flat_high <- cor_mat_flat %>% filter(abs(Correlation) >= 0.7)
+cor_mat_flat_high <- cor_mat_flat %>% filter(abs(Correlation) >= 0.7) %>% mutate(Correlation = round(Correlation, 2))
+gt(cor_mat_flat_high) %>% tab_header(title = md("**Variables with strong correlations**")) %>% tab_style(style = list(cell_borders(sides = "all", color="black"),cell_fill(color = "#f8f2e4", alpha = 1),cell_text(font="mono")), location = list(cells_body(),cells_column_labels(),cells_title())) %>% tab_style(style = cell_text(style = "oblique", weight = "bold",whitespace = "nowrap"), location = cells_column_labels())
 ```
 We will need to be mindful of the variables that are highly correlated. 
 
@@ -569,7 +584,7 @@ for (i in 1:nrow(data201015_1)) {
   square_diff <- (predicted - actual)^2
   sum <- sum + square_diff
 }
-average_error_l <- sum/nrow(data201015_1)
+average_error_l <- sum$hrate201015/nrow(data201015_1)
 
 sum <- 0
 for (i in 1:nrow(data201015_1)) {
@@ -581,7 +596,7 @@ for (i in 1:nrow(data201015_1)) {
   square_diff <- (predicted - actual)^2
   sum <- sum + square_diff
 }
-average_error_g <- sum/nrow(data201015_1)
+average_error_g <- sum$hrate201015/nrow(data201015_1)
 
 
 sum <- 0
@@ -594,10 +609,12 @@ for (i in 1:nrow(data201015_1)) {
   square_diff <- (predicted - actual)^2
   sum <- sum + square_diff
 }
-average_error_nb <- sum/nrow(data201015_1)
+average_error_nb <- sum$hrate201015/nrow(data201015_1)
 average_error_nb
+
+error_table <- gt(data.frame(Linear = average_error_l,Gamma = average_error_g, `Negative Binomial` = average_error_nb, check.names = FALSE)) %>% tab_header(title = md("**Average prediction error**")) %>% tab_style(style = list(cell_borders(sides = "all", color="black"),cell_fill(color = "#f8f2e4", alpha = 1),cell_text(font="mono")), location = list(cells_body(),cells_column_labels(),cells_title())) %>% tab_style(style = cell_text(style = "oblique", weight = "bold",whitespace = "nowrap"), location = cells_column_labels())
 ```
-The Negative Binomial model produced the lowest prediction error, meaning it is the most versatile and making predictions to new data. For this reason, this is the best chosen model.
+The Negative Binomial model produced the lowest prediction error, meaning it is the most versatile at making predictions to new data. For this reason, this is the best chosen model.
 
 
 
@@ -613,12 +630,23 @@ confint(nbmod_2)
 ```
 Parameters:
 
-noncitizen:   13.58 (5.59,21.62) -> For every 1% increase in noncitizen, hate crime rate increases by 1.15 (1.06,1.24)
-nonwhite      -3.10 (-4.84,-1.31) -> For every 1% increase in nonwhite, hate crime rate decreases by 0.0305 (0.0130,0.0473)
+noncitizen:   13.58 (5.59,21.62) -> For every 1% increase in noncitizen, hate crime rate increases by 14.55% (5.74%,24.14%)
+nonwhite      -3.10 (-4.84,-1.31) -> For every 1% increase in nonwhite, hate crime rate decreases by 3.05% (1.30%,4.73%)
 
 According to the model, a fully white, fully US citizen state would have a hate crime rate of 2.58 (1.73,3.89)
 
+```{r}
+summary_nb <- data.frame(c("Intercept", "noncitizen", "nonwhite"), c(0.95,13.59,-3.10), c("(0.55, 1.36)","(5.59, 21.62)","(-4.84, -1.31)"), c("In a fully white, fully US citizen state, we would expect to see an average hate crime rate of 2.58 (1.73, 3.89) indicents per 100,000 people, over the 2010-2015 period", "For every 1% increase in the proportion of a state's population that are not US citizens, we would expect the average (over the 2010-2015 period) hate crime incidents per 100,000 people to increase by 14.55% (5.74%, 24.14%)", "For every 1% increase in the proportion of a state's population that is not of white ethnicity, we would expect the average (over the 2010-2015 period) hate crime incidents per 100,000 people to decrease by 3.05% (1.30%, 4.73%)"))
+colnames(summary_nb) <- c("Variable", "Estimate", "95% Confidence Interval", "Interpretation")
 
+gt(summary_nb) %>% tab_header(title = md("**Negative Binomial model summary**")) %>% tab_style(style = list(cell_borders(sides = "all", color="black"),cell_fill(color = "#f8f2e4", alpha = 1),cell_text(font="mono")), location = list(cells_body(),cells_column_labels(),cells_title())) %>% tab_style(style = cell_text(style = "oblique", weight = "bold",whitespace = "nowrap"), location = cells_column_labels()) %>% tab_style(style = cell_text(align = "center"), location = cells_body(columns = 3))
+```
+
+```{r}
+var_descrip <- read_csv("Variable description.csv")
+var_table <- gt(var_descrip) %>% tab_header(title = md("**Variable description**")) %>% tab_style(style = list(cell_borders(sides = "all", color="black"),cell_fill(color = "#f8f2e4", alpha = 1),cell_text(font="mono", size = 20)), location = list(cells_body(),cells_column_labels(),cells_title())) %>% tab_style(style = cell_text(style = "oblique", weight = "bold",whitespace = "nowrap"), location = cells_column_labels()) %>% cols_width(Description~px(600))
+var_table
+```
 Caveats
 
 1. The response is an average across the 2010-2015 period, whereas the explanatory variables are taken from singular years within or close to the 2010-2015 period.
